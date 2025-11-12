@@ -28,7 +28,15 @@ def rotate(shape):
 def empty_board():
     return [[0 for _ in range(WIDTH)] for _ in range(HEIGHT)]
 
-def draw(board, shape, offset, score):
+def format_preview(shape, size=4):
+    preview = [[0]*size for _ in range(size)]
+    for y, row in enumerate(shape):
+        for x, c in enumerate(row):
+            if y < size and x < size:
+                preview[y][x] = c
+    return ["".join("[]" if c else "  " for c in row) for row in preview]
+
+def draw(board, shape, offset, score, next_shapes):
     print("\033[H", end="")
 
     temp = [row[:] for row in board]
@@ -37,12 +45,35 @@ def draw(board, shape, offset, score):
             if c:
                 if 0 <= offset[1] + y < HEIGHT and 0 <= offset[0] + x < WIDTH:
                     temp[offset[1] + y][offset[0] + x] = c
-    print("+" + "--" * WIDTH + "+")
-    for row in temp:
-        print("|" + "".join("[]" if x else "  " for x in row) + "|")
+
+    print("+" + "--" * WIDTH + "+    Next Shapes:")
+
+    next_previews = [format_preview(ns) for ns in next_shapes]
+    preview_height = len(next_previews[0])
+    spacing = 2
+
+    for y in range(HEIGHT):
+        line = "|"
+        for x in range(WIDTH):
+            val = temp[y][x]
+            line += "[]" if val else "· "
+        line += "|"
+
+        preview_line = ""
+        total_preview_height = preview_height * len(next_previews) + spacing * (len(next_previews)-1)
+        if y < total_preview_height:
+            idx = y
+            for i, preview in enumerate(next_previews):
+                if idx < preview_height:
+                    preview_line += "    " + preview[idx]
+                    break
+                idx -= preview_height + spacing
+        line += preview_line
+        print(line)
+
     print("+" + "--" * WIDTH + "+")
     print(f"Score: {score}")
-    print("Controls: A=links, D=rechts, W=drehen, S=fallen, Q=quit")
+    print("Controls: A=left, D=right, W=rotate, S=hard drop, Q=quit")
 
 def check_collision(board, shape, offset):
     off_x, off_y = offset
@@ -88,12 +119,18 @@ def get_input(timeout=0):
             return ch
         return ""
 
+def hard_drop(board, shape, offset):
+    while not check_collision(board, shape, [offset[0], offset[1] + 1]):
+        offset[1] += 1
+    return offset
+
 def tetris():
     board = empty_board()
     score = 0
     speed = 1.0
-    shape = random.choice(list(SHAPES.values()))
-    offset = [WIDTH // 2 - len(shape[0]) // 2, 0]
+    current_shape = random.choice(list(SHAPES.values()))
+    next_shapes = [random.choice(list(SHAPES.values())) for _ in range(3)]
+    offset = [WIDTH // 2 - len(current_shape[0]) // 2, 0]
     last_fall_time = time.time()
 
     if not WINDOWS:
@@ -104,44 +141,43 @@ def tetris():
 
     try:
         while True:
-            draw(board, shape, offset, score)
+            draw(board, current_shape, offset, score, next_shapes)
             move = get_input(0)
 
             if move == "q":
-                print("Spiel beendet!")
+                print("Game ended!")
                 break
             elif move == "a":
                 new_off = [offset[0] - 1, offset[1]]
-                if not check_collision(board, shape, new_off):
+                if not check_collision(board, current_shape, new_off):
                     offset = new_off
             elif move == "d":
                 new_off = [offset[0] + 1, offset[1]]
-                if not check_collision(board, shape, new_off):
+                if not check_collision(board, current_shape, new_off):
                     offset = new_off
             elif move == "w":
-                new_shape = rotate(shape)
+                new_shape = rotate(current_shape)
                 if not check_collision(board, new_shape, offset):
-                    shape = new_shape
+                    current_shape = new_shape
             elif move == "s":
-                offset[1] += 1
-                if check_collision(board, shape, offset):
-                    offset[1] -= 1
+                offset = hard_drop(board, current_shape, offset)
 
             if time.time() - last_fall_time > speed:
                 offset[1] += 1
                 last_fall_time = time.time()
-                if check_collision(board, shape, offset):
+                if check_collision(board, current_shape, offset):
                     offset[1] -= 1
-                    merge(board, shape, offset)
+                    merge(board, current_shape, offset)
                     board, lines = clear_lines(board)
                     score += lines * 100
                     if lines:
                         speed = max(0.3, speed - 0.1)
-                    shape = random.choice(list(SHAPES.values()))
-                    offset = [WIDTH // 2 - len(shape[0]) // 2, 0]
-                    if check_collision(board, shape, offset):
-                        draw(board, shape, offset, score)
-                        print("GAME OVER! Endpunktzahl:", score)
+                    current_shape = next_shapes.pop(0)
+                    next_shapes.append(random.choice(list(SHAPES.values())))
+                    offset = [WIDTH // 2 - len(current_shape[0]) // 2, 0]
+                    if check_collision(board, current_shape, offset):
+                        draw(board, current_shape, offset, score, next_shapes)
+                        print("GAME OVER! Final Score:", score)
                         break
 
             time.sleep(0.05)
